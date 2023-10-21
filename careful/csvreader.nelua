@@ -1,0 +1,75 @@
+require 'hashmap'
+require 'sequence'
+require 'utf8'
+require 'filestream'
+require 'string'
+local mmap = require 'mmap'
+
+local M = @record{}
+
+-- none of the strings need destruction: they're all backed by a single mmap
+-- strings aren't zero-terminated
+global M.Csv = @record{
+  map: string,
+  columns: hashmap(string, integer),
+  row: sequence(sequence(string)),
+}
+
+function M.Csv:__close()
+  assert(0 == mmap.munmap(self.map.data, self.map.size))
+  self.columns:destroy()
+  self.row:destroy()
+end
+
+-- modifies string. Don't run against Csv.map, or you'll lose the munmap'able pointer!
+local function strip_BOM(s: *string)
+  if utf8.codepoint(s, 1) == 0xfeff then
+    s.data = (@*[0]byte)((@usize)(s.data) + 3)
+    s.size = s.size - 3
+  end
+end
+
+-- \r not handled specially
+function M.scan(buf: string, col: integer, row: integer): (string, string, integer, integer)
+  local field: string = {buf.data, 0}
+  while buf.size > 0 do
+    local last = buf.data[0]
+    buf.data = (@*[0]byte)((@usize)(buf.data)+1)
+    buf.size = buf.size - 1
+    switch last
+    case '\t'_u8 then
+      return field, buf, col+1, row
+    case '\n'_u8 then
+      return field, buf, col+1, row+1
+    else
+      field.size = field.size + 1
+    end
+  end
+  return field, buf, col, row
+end
+
+function M.Csv:readfrom(file: filestream)
+  local p, len = mmap.mapfile(file)
+  self.map = {(@*[0]byte)(p), len}
+  local buf = self.map
+  strip_BOM(&buf)
+
+  local field, col, row = '', 0, 1
+  local rowdata: sequence(string)
+  while buf.size > 0 do
+    local last = row
+    field, buf, col, row = M.scan(buf, col, row)
+    if last == 1 then
+      self.columns[field] = col
+    else
+      rowdata:push(field)
+      if last ~= row then
+        self.row:push(rowdata:copy())
+        rowdata:clear()
+      end
+    end
+  end
+  if #rowdata > 0 then self.row:push(rowdata) end
+end
+
+return M

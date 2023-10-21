@@ -1,0 +1,51 @@
+require 'hashmap'
+require 'sequence'
+require 'io'
+require 'string'
+local csv = require 'csvreader'
+
+global WordLevel = @enum{None = 0, A1, A2, B1, B2, C1, C2, Any}
+function WordLevel.parse(s: string): WordLevel
+  if     s == ''   then return WordLevel.None
+  elseif s == 'A1' then return WordLevel.A1
+  elseif s == 'A2' then return WordLevel.A2
+  elseif s == 'B1' then return WordLevel.B1
+  elseif s == 'B2' then return WordLevel.B2
+  elseif s == 'C1' then return WordLevel.C1
+  elseif s == 'C2' then return WordLevel.C2
+  end
+  check(false, string.format('invalid level: %s', s))
+  return 0
+end
+global Sentence = @record{ru: string, tatoeba_key: integer, level: WordLevel}
+global Sentences: hashmap(integer, Sentence)
+
+## if pragmas.atoi then
+  require 'C.stdlib'
+  local function tonumber(s: string) return C.atoi(s) end
+## end
+
+local function loadSentences(filename: string)
+  local file <close> = io.open(filename, 'r')
+  local csvf: csv.Csv <close>
+  local buf = csvf:readfrom(file)
+  local strid, ru, tatoeba_key, disabled, level = '', '', '', '', ''
+  buf, strid, ru, tatoeba_key, disabled, level = csv.scan5(buf) -- skip header
+  while buf.size > 0 do
+    buf, strid, ru, tatoeba_key, disabled, level = csv.scan5(buf)
+    local id = tonumber(strid)
+    check(not Sentences:has(id))
+    Sentences[id] = {
+      ru          = ru, -- delay emphasis change to when printed
+      tatoeba_key = tonumber(tatoeba_key),
+      level       = WordLevel.parse(level),
+    }
+  end
+end
+
+## if pragmas.reserve then
+  Sentences:reserve(360000)
+## end
+loadSentences('sentences.csv')
+print(#Sentences)
+Sentences:destroy()

@@ -1,0 +1,37 @@
+## if not ccinfo.is_linux then static_error("getrusage is probably either absent or different on this platform, sorry") end
+require 'stringbuilder'
+require 'C.arg'
+
+local usage <cimport, cinclude '<sys/resource.h>', cincomplete, ctypedef 'rusage'> = @record{
+  ru_maxrss: int64,
+}
+local RUSAGE_CHILDREN: cint <const, cimport, cinclude '<sys/resource.h>'>
+
+local function getrusage(who: cint, report: *usage): cint <cimport, nodecl, cinclude '<sys/resource.h>'> end
+local function fork(): cint <cimport, nodecl, cinclude '<unistd.h>'> end
+local function execvp(file: cstring <const>, argv: pointer(cstring)): cint <cimport, nodecl, cinclude '<unistd.h>'> end
+local function waitpid(pid: cint, wstatus: pointer(cint), options: cint): cint <cimport, nodecl, cinclude '<sys/wait.h>'> end
+
+local function smartRSS(kb: int64): string
+  local sb: stringbuilder
+  local k <comptime> = 1024_i64
+  if     kb < k   then sb:write(string.format('%d kb', kb))
+  elseif kb < k*k then sb:write(string.format('%.2f MB', number(kb)/number(k)))
+  else                 sb:write(string.format('%.1f G', number(kb)/number(k*k)))
+  end
+  return sb:promote()
+end
+
+local function main()
+  local rep: usage <noinit>
+  if C.argc < 2 then return 1 end
+  local ret = fork()
+  if ret == -1 then return 1 end
+  if ret == 0 then execvp(C.argv[1], &C.argv[1]) end
+  waitpid(ret, nilptr, 0)
+  if -1 == getrusage(RUSAGE_CHILDREN, &rep) then return 1 end
+  print(smartRSS(rep.ru_maxrss))
+  return 0
+end
+
+main()

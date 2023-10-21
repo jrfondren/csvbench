@@ -1,0 +1,65 @@
+require 'hashmap'
+require 'sequence'
+require 'utf8'
+require 'filestream'
+require 'string'
+
+local M = @record{}
+
+-- ASCII bytes can't appear in UTF8 multi-byte sequences, so there's no need to
+-- do extra work here
+local function split(line: string, c: byte): sequence(string)
+  local result: sequence(string)
+  local col: stringbuilder <close>
+  for _, b in ipairs(line) do
+    if   b == c then result:push(col:promote())
+    else col:writebyte(b)
+    end
+  end
+  result:push(col:promote())
+  return result
+end
+
+global M.Csv = @record{
+  columns: hashmap(string, integer),
+  row: sequence(sequence(string)),
+}
+
+function M.Csv:__close()
+  self.columns:destroy()
+  self.row:destroy()
+end
+
+local function strip_BOM(s: string)
+  local sb: stringbuilder <close>
+  for _, r in utf8.codes(s) do
+    if r == 0xfeff then continue end
+    sb:write(utf8.char(r))
+  end
+  return sb:promote()
+end
+
+function M.Csv:readfrom(file: filestream)
+  local firstline <close> = file:read()
+  local clean <close> = strip_BOM(firstline)
+  local header <close> = split(clean, '\t'_u8)
+  for col, key in ipairs(header) do
+    self.columns[key] = col
+  end
+  for line <close> in file:lines() do
+    local c = split(line, '\t'_u8)
+    self.row:push(c)
+  end
+end
+
+function M.open(path: string): M.Csv
+  local file <close>, err, errcode = io.open(path, 'r')
+  if errcode ~= 0 then
+    panic(string.format('failed to open csv for reading: %s: %s (%d)', path, err, errcode))
+  end
+  local csv: M.Csv
+  csv:readfrom(file)
+  return csv
+end
+
+return M

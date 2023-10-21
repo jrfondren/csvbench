@@ -1,0 +1,40 @@
+require 'utf8'
+require 'stringbuilder'
+
+local M = @record{}
+
+local combiningAccentAcute <const> = utf8.codepoint '\u{0301}'
+local singleQuote <comptime> = "'"_u8
+
+function M.stripEmphasis(s: string): string
+  local sb: stringbuilder
+  for _, c in utf8.codes(s) do
+    if c == combiningAccentAcute then continue end
+    sb:write(utf8.char(c))
+  end
+  return sb:promote()
+end
+
+## if pragmas.flashtests then
+  assert('hello'          == M.stripEmphasis('hello'))
+  assert('комментировать' == M.stripEmphasis('комменти́ровать'))
+  assert('ииии'           == M.stripEmphasis('и́и́и́и́'))
+## end
+
+function M.quoteToEmphasis(s: string): string
+  local sb: stringbuilder
+  for _, c in utf8.codes(s) do
+    if c == singleQuote then
+      sb:write(utf8.char(combiningAccentAcute))
+    else
+      sb:write(utf8.char(c))
+    end
+  end
+  return sb:promote()
+end
+
+## if pragmas.flashtests then
+  assert("компью́тер" == M.quoteToEmphasis("компью'тер"))
+## end
+
+return M

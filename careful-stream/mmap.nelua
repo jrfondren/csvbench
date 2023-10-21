@@ -1,0 +1,27 @@
+require 'filestream'
+
+local M = @record{}
+
+local off_t: type = isize
+function M.mmap(addr: pointer, length: usize, prot: cint, flags: cint, fd: cint, offset: off_t): pointer <cimport, nodecl, cinclude '<sys/mman.h>'> end
+function M.munmap(addr: pointer, length: usize): cint <cimport, nodecl, cinclude '<sys/mman.h>'> end
+function M.fileno(stream: pointer): cint <cimport, nodecl, cinclude '<stdio.h>'> end
+local statbuf: type <cimport 'statbuf', nodecl, cinclude '<sys/stat.h>', cincomplete, ctypedef 'stat'> = @record{
+  st_size: off_t,
+}
+local function fstat(fd: cint, buf: *statbuf): cint <cimport, nodecl, cinclude '<sys/stat.h>'> end
+global M.PROT_READ: cint <const, cimport, cinclude '<sys/mman.h>'>
+global M.MAP_PRIVATE: cint <const, cimport, cinclude '<sys/mman.h>'>
+global M.MAP_FAILED: pointer <const, cimport, cinclude '<sys/mman.h>'>
+
+function M.mapfile(file: filestream): (pointer, usize)
+  local sb: statbuf <noinit>
+  local fd = M.fileno(file.fs.fp)
+  assert(fd ~= -1)
+  assert(-1 ~= fstat(fd, &sb))
+  local addr = M.mmap(nilptr, sb.st_size, M.PROT_READ, M.MAP_PRIVATE, fd, 0)
+  assert(addr ~= M.MAP_FAILED)
+  return addr, sb.st_size
+end
+
+return M

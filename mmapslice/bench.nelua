@@ -1,0 +1,50 @@
+require 'hashmap'
+require 'sequence'
+require 'io'
+require 'string'
+local csv = require 'csvreader'
+local russian = require 'emphasis'
+
+global WordLevel = @enum{None = 0, A1, A2, B1, B2, C1, C2, Any}
+function WordLevel.parse(s: string): WordLevel
+  if     s == 'A1' then return WordLevel.A1
+  elseif s == 'A2' then return WordLevel.A2
+  elseif s == 'B1' then return WordLevel.B1
+  elseif s == 'B2' then return WordLevel.B2
+  elseif s == 'C1' then return WordLevel.C1
+  elseif s == 'C2' then return WordLevel.C2
+  elseif s == ''   then return WordLevel.None
+  end
+  check(false, string.format('invalid level: %s', s))
+  return 0
+end
+global Sentence = @record{ru: string, tatoeba_key: integer, level: WordLevel}
+global Sentences: hashmap(integer, Sentence)
+
+local function loadSentences(filename: string)
+  print('reading csv')
+  local file <close> = io.open(filename, 'r')
+  local csvf: csv.Csv <close>
+  csvf:readfrom(file)
+  print('done reading csv', #csvf.row)
+  local i_id          = $csvf.columns:peek('id')
+  local i_ru          = $csvf.columns:peek('ru')
+  local i_tatoeba_key = $csvf.columns:peek('tatoeba_key')
+  local i_level       = $csvf.columns:peek('level')
+  for i, row in ipairs(csvf.row) do
+    if #row ~= 5 then print('bad row at line:', i) continue end
+    local id = tonumber(row[i_id])
+    check(not Sentences:has(id))
+    Sentences[id] = {
+      ru          = russian.quoteToEmphasis(row[i_ru]),
+      tatoeba_key = tonumber(row[i_tatoeba_key]),
+      level       = WordLevel.parse(row[i_level]),
+    }
+  end
+end
+
+## if pragmas.reserve then
+  Sentences:reserve(360000)
+## end
+loadSentences('sentences.csv')
+print(#Sentences)
