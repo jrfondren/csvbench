@@ -1,0 +1,91 @@
+require 'utf8'
+require 'filestream'
+local mmap = require 'mmap'
+
+## local function make_csvreader(sep)
+--## opts = opts or {}
+--## opts.sep = opts.sep or string.byte('\t')
+  local CSV = @record{}
+
+  -- remove UTF8 byte-order-mark from the beginning of the string, if it exists.
+  -- returns new string that aliases the input. You probably want to save the input to munmap it.
+  function CSV.strip_BOM(s: string): string
+    if utf8.codepoint(s, 1) == 0xfeff then
+      return {
+        data = (@*[0]byte)((@usize)(s.data) + 3),
+        size = s.size - 3,
+      }
+    end
+    return s
+  end
+
+  -- \r not handled specially
+  function CSV.read(buf: string, col: integer, row: integer): (string, string, integer, integer)
+    local field: string = {buf.data, 0}
+    while buf.size > 0 do
+      local last = buf.data[0]
+      buf.data = (@*[0]byte)((@usize)(buf.data)+1)
+      buf.size = buf.size - 1
+      switch last
+      case #[sep]# then
+        return field, buf, col+1, row
+      case '\n'_u8 then
+        return field, buf, col+1, row+1
+      else
+        field.size = field.size + 1
+      end
+    end
+    return field, buf, col, row
+  end
+
+  function CSV.scan(buf: string, rectype: type <comptime>)
+    local r: rectype
+    local col, row = 0, 1
+    ## local last = #rectype.value.fields
+    ## for i=1, last do
+      r.#|rectype.value.fields[i].name|#, buf, col, row = CSV.read(buf, col, row)
+      check(col == #[i]# and row == #[i == last and 2 or 1]#)
+    ## end
+    return buf, r
+  end
+
+  function CSV.skipLine(buf: string)
+    while buf.size > 0 do
+      local last = buf.data[0]
+      buf.data = (@*[0]byte)((@usize)(buf.data)+1)
+      buf.size = buf.size - 1
+      if last == '\n'_u8 then return buf end
+    end
+    check(false, 'ran out of buffer while skipping current line')
+    return ''
+  end
+
+  function CSV.maybeScan(buf: string, rectype: type <comptime>)
+    local r: rectype
+    local col, row = 0, 1
+    ## local last = #rectype.value.fields
+    ## for i=1, last do
+      r.#|rectype.value.fields[i].name|#, buf, col, row = CSV.read(buf, col, row)
+      if not(col == #[i]# and row == #[i == last and 2 or 1]#) then
+        buf = CSV.skipLine(buf)
+        return false, buf, r
+      end
+    ## end
+    return true, buf, r
+  end
+
+  function CSV.mmap(file: filestream): string
+    local p, len = mmap.mapfile(file)
+    return {(@*[0]byte)(p), len}
+  end
+
+  function CSV.munmap(map: string): boolean
+    return 0 == mmap.munmap(map.data, map.size)
+  end
+
+  ## return CSV
+## end
+
+local CSV: type = #[generalize(make_csvreader)]#
+
+return CSV
